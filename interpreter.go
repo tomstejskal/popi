@@ -39,6 +39,8 @@ func (i *Interpreter) Exec() (err error) {
 		case OpPush:
 			el = el.Next()
 			i.Push(el.Value)
+		case OpPop:
+			i.Pop()
 		case OpAdd:
 			y, x := i.Pop().(int), i.Pop().(int)
 			i.Push(x + y)

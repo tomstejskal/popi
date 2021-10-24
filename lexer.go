@@ -37,6 +37,11 @@ const (
 	TokDiv
 	TokLParen
 	TokRParen
+	TokLBrace
+	TokRBrace
+	TokComma
+	TokSColon
+	TokFunc
 )
 
 type Token int
@@ -86,8 +91,26 @@ func (l *Lexer) ReadToken() (tok Token, val interface{}, err error) {
 		tok = TokLParen
 	case ')':
 		tok = TokRParen
+	case '{':
+		tok = TokLBrace
+	case '}':
+		tok = TokRBrace
+	case ',':
+		tok = TokComma
+	case ';':
+		tok = TokSColon
+	case '\n':
+		tok = TokSColon // implicit semicolon
 	default:
-		err = l.unexpectedChar(r)
+		if err = l.rs.UnreadRune(); err != nil {
+			return
+		}
+		if val, err = l.readIdent(); err != nil {
+			return
+		}
+		if val == "func" {
+			tok = TokFunc
+		}
 	}
 
 	return
@@ -108,9 +131,8 @@ func (l *Lexer) skipSpace() (err error) {
 		if err != nil {
 			return
 		}
-		if !unicode.IsSpace(r) {
-			err = l.rs.UnreadRune()
-			return
+		if !unicode.IsSpace(r) || r == '\n' {
+			return l.rs.UnreadRune()
 		}
 	}
 }
@@ -121,17 +143,6 @@ func (l *Lexer) readRune() (r rune, err error) {
 			return
 		}
 		switch r {
-		case '\r':
-			if r, _, err = l.rs.ReadRune(); err != nil {
-				return
-			}
-			if r == '\n' {
-				l.line++
-				l.pos = 1
-			} else {
-				l.pos++
-				return
-			}
 		case '\n':
 			l.line++
 			l.pos = 1
@@ -162,6 +173,31 @@ func (l *Lexer) readNum() (val int, err error) {
 		}
 		val = val*10 + (int(r) - '0')
 		found = true
+	}
+}
+
+func (l *Lexer) readIdent() (val string, err error) {
+	var r rune
+	if r, err = l.readRune(); err != nil {
+		return
+	}
+	if !unicode.IsLetter(r) {
+		err = l.unexpectedChar(r)
+		return
+	}
+	for {
+		r, err = l.readRune()
+		if err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return
+		}
+		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_') {
+			err = l.rs.UnreadRune()
+			return
+		}
+		val += string(r)
 	}
 }
 

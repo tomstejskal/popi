@@ -8,6 +8,7 @@ import (
 
 const (
 	OpPush = 1 + iota
+	OpPop
 	OpAdd
 	OpSub
 	OpMul
@@ -50,7 +51,7 @@ func NewParser(rs io.RuneScanner) *Parser {
 }
 
 func (p *Parser) Parse() (err error) {
-	return p.readExpr()
+	return p.readExprList()
 }
 
 func (p *Parser) Ops() *list.List {
@@ -65,6 +66,49 @@ func (p *Parser) readToken() (err error) {
 
 func (p *Parser) unreadToken() (err error) {
 	return p.lex.UnreadToken(p.tok, p.val)
+}
+
+func (p *Parser) readExprList() (err error) {
+	if err = p.readExpr(); err != nil {
+		return
+	}
+	for {
+		if err = p.readToken(); err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return
+		}
+		if p.tok != TokSColon {
+			return p.unexpectedToken("';'")
+		}
+		for {
+			if err = p.readToken(); err != nil {
+				if err == io.EOF {
+					err = nil
+				}
+				return
+			}
+			if p.tok != TokSColon {
+				if err = p.unreadToken(); err != nil {
+					return
+				}
+				break
+			}
+		}
+		if err = p.readToken(); err == nil {
+			if err = p.unreadToken(); err != nil {
+				return
+			}
+			p.addOp(OpPop)
+		}
+		if err = p.readExpr(); err != nil {
+			if err == io.EOF {
+				err = nil
+			}
+			return
+		}
+	}
 }
 
 func (p *Parser) readExpr() (err error) {
@@ -133,9 +177,36 @@ func (p *Parser) readVal() (err error) {
 	case TokNum:
 		p.addOp(OpPush)
 		p.addOp(p.val)
+	case TokFunc:
+		return p.readFunc()
 	default:
-		return p.unexpectedToken()
+		return p.unexpectedToken("value")
 	}
+	return
+}
+
+func (p *Parser) readFunc() (err error) {
+	if err = p.readToken(); err != nil {
+		return
+	}
+	if p.tok != TokLParen {
+		return p.unexpectedToken("'('")
+	}
+	var params []string
+	if params, err = p.readFuncParams(); err != nil {
+		fmt.Println(params)
+		return
+	}
+	if err = p.readToken(); err != nil {
+		return
+	}
+	if p.tok != TokRParen {
+		return p.unexpectedToken("')'")
+	}
+	return
+}
+
+func (p *Parser) readFuncParams() (params []string, err error) {
 	return
 }
 
@@ -143,6 +214,7 @@ func (p *Parser) addOp(op interface{}) {
 	p.ops.PushBack(op)
 }
 
-func (p *Parser) unexpectedToken() (err error) {
-	return &ParserError{p.lex.line, p.lex.pos, fmt.Sprintf("Unexpected token: %d", p.tok)}
+func (p *Parser) unexpectedToken(expected string) (err error) {
+	return &ParserError{p.lex.line, p.lex.pos,
+		fmt.Sprintf("Unexpected token: %d, %s expected", p.tok, expected)}
 }
