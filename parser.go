@@ -8,11 +8,22 @@ import (
 
 const (
 	OpPush = 1 + iota
-	OpPop
-	OpAdd
-	OpSub
-	OpMul
-	OpDiv
+	OpSwap
+	OpDup
+	OpOver
+	OpRot
+	OpDrop
+	OpGet
+	OpSet
+	OpAddI
+	OpSubI
+	OpMulI
+	OpDivI
+	OpAddF
+	OpSubF
+	OpMulF
+	OpDivF
+	OpCall
 )
 
 type ParserError struct {
@@ -38,16 +49,28 @@ func (err *ParserError) Msg() string {
 }
 
 type Parser struct {
-	lex  *Lexer
-	ops  *list.List
-	tok  Token
-	val  interface{}
-	line int
-	pos  int
+	lex    *Lexer
+	ops    *list.List
+	tok    Token
+	line   int
+	pos    int
+	scopes *list.List
+}
+
+type Scope struct {
+	items     *list.List
+	stackSize int
+}
+
+type Item struct {
+	ident string
+	pos   int
 }
 
 func NewParser(rs io.RuneScanner) *Parser {
-	return &Parser{NewLexer(rs), list.New(), 0, nil, 1, 1}
+	scopes := list.New()
+	scopes.PushFront(&Scope{list.New(), 0})
+	return &Parser{NewLexer(rs), list.New(), Token{}, 1, 1, scopes}
 }
 
 func (p *Parser) Parse() (err error) {
@@ -60,12 +83,12 @@ func (p *Parser) Ops() *list.List {
 
 func (p *Parser) readToken() (err error) {
 	p.line, p.pos = p.lex.line, p.lex.pos
-	p.tok, p.val, err = p.lex.ReadToken()
+	p.tok, err = p.lex.ReadToken()
 	return err
 }
 
 func (p *Parser) unreadToken() (err error) {
-	return p.lex.UnreadToken(p.tok, p.val)
+	return p.lex.UnreadToken(p.tok)
 }
 
 func (p *Parser) readExprList() (err error) {
@@ -79,8 +102,8 @@ func (p *Parser) readExprList() (err error) {
 			}
 			return
 		}
-		if p.tok != TokSColon {
-			return p.unexpectedToken("';'")
+		if p.tok.id != TokSColon {
+			return p.unexpectedToken(";")
 		}
 		for {
 			if err = p.readToken(); err != nil {
@@ -89,7 +112,7 @@ func (p *Parser) readExprList() (err error) {
 				}
 				return
 			}
-			if p.tok != TokSColon {
+			if p.tok.id != TokSColon {
 				if err = p.unreadToken(); err != nil {
 					return
 				}
@@ -100,7 +123,7 @@ func (p *Parser) readExprList() (err error) {
 			if err = p.unreadToken(); err != nil {
 				return
 			}
-			p.addOp(OpPop)
+			p.addOp(OpDrop)
 		}
 		if err = p.readExpr(); err != nil {
 			if err == io.EOF {
@@ -127,11 +150,11 @@ func (p *Parser) readTerm() (err error) {
 			return
 		}
 		var op int
-		switch p.tok {
+		switch p.tok.id {
 		case TokAdd:
-			op = OpAdd
+			op = OpAddI
 		case TokSub:
-			op = OpSub
+			op = OpSubI
 		default:
 			return p.unreadToken()
 		}
@@ -154,11 +177,11 @@ func (p *Parser) readFactor() (err error) {
 			return
 		}
 		var op int
-		switch p.tok {
+		switch p.tok.id {
 		case TokMul:
-			op = OpMul
+			op = OpMulI
 		case TokDiv:
-			op = OpDiv
+			op = OpDivI
 		default:
 			return p.unreadToken()
 		}
@@ -173,12 +196,47 @@ func (p *Parser) readVal() (err error) {
 	if err = p.readToken(); err != nil {
 		return
 	}
-	switch p.tok {
-	case TokNum:
+	switch p.tok.id {
+	case TokInt:
 		p.addOp(OpPush)
-		p.addOp(p.val)
+		p.addOp(p.tok.val)
+		p.scope().stackSize++
 	case TokFunc:
 		return p.readFunc()
+	case TokIdent:
+		ident := p.tok.val.(string)
+		if err = p.readToken(); err != nil {
+			return
+		}
+		if p.tok.id == TokAssign {
+			// variable assignment
+			if err = p.readExpr(); err != nil {
+				return
+			}
+			p.scope().items.PushBack(&Item{ident, p.scope().stackSize - 1})
+			p.addOp(OpDup)
+		} else {
+			if err = p.unreadToken(); err != nil {
+				return
+			}
+			// variable evaluation
+			sEl := p.scopes.Front()
+			for sEl != nil {
+				s := sEl.Value.(*Scope)
+				iEl := s.items.Front()
+				for iEl != nil {
+					i := iEl.Value.(*Item)
+					if i.ident == ident {
+						p.addOp(OpGet)
+						p.addOp(i.pos)
+						return
+					}
+					iEl = iEl.Next()
+				}
+				sEl = sEl.Next()
+			}
+			return fmt.Errorf("Unknown variable: %s", ident)
+		}
 	default:
 		return p.unexpectedToken("value")
 	}
@@ -189,24 +247,59 @@ func (p *Parser) readFunc() (err error) {
 	if err = p.readToken(); err != nil {
 		return
 	}
-	if p.tok != TokLParen {
-		return p.unexpectedToken("'('")
+	if p.tok.id != TokLParen {
+		return p.unexpectedToken("(")
 	}
 	var params []string
 	if params, err = p.readFuncParams(); err != nil {
-		fmt.Println(params)
 		return
 	}
+	fmt.Println(params)
 	if err = p.readToken(); err != nil {
 		return
 	}
-	if p.tok != TokRParen {
-		return p.unexpectedToken("')'")
+	if p.tok.id != TokRParen {
+		return p.unexpectedToken(")")
 	}
+	var body func()
+	if body, err = p.readFuncBody(); err != nil {
+		return
+	}
+	p.addOp(body)
 	return
 }
 
 func (p *Parser) readFuncParams() (params []string, err error) {
+	if err = p.readToken(); err != nil {
+		return
+	}
+	params = append(params, p.tok.val.(string))
+	for {
+		if err = p.readToken(); err != nil {
+			return
+		}
+		if p.tok.id != TokComma {
+			return
+		}
+		if err = p.readToken(); err != nil {
+			return
+		}
+		if p.tok.id != TokIdent {
+			err = p.unexpectedToken("function parameter")
+			return
+		}
+		params = append(params, p.tok.val.(string))
+	}
+}
+
+func (p *Parser) readFuncBody() (body func(), err error) {
+	if err = p.readToken(); err != nil {
+		return
+	}
+	if p.tok.id != TokLBrace {
+		err = p.unexpectedToken("{")
+		return
+	}
 	return
 }
 
@@ -216,5 +309,9 @@ func (p *Parser) addOp(op interface{}) {
 
 func (p *Parser) unexpectedToken(expected string) (err error) {
 	return &ParserError{p.lex.line, p.lex.pos,
-		fmt.Sprintf("Unexpected token: %d, %s expected", p.tok, expected)}
+		fmt.Sprintf("Unexpected token: %s, %s expected", p.tok, expected)}
+}
+
+func (p *Parser) scope() (s *Scope) {
+	return p.scopes.Front().Value.(*Scope)
 }

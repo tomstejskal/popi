@@ -30,7 +30,8 @@ func (err *LexerError) Msg() string {
 
 const (
 	TokNone = iota
-	TokNum
+	TokInt
+	TokFloat
 	TokAdd
 	TokSub
 	TokMul
@@ -42,25 +43,71 @@ const (
 	TokComma
 	TokSColon
 	TokFunc
+	TokIdent
+	TokAssign
+	TokEqual
 )
 
-type Token int
+type Token struct {
+	id  int
+	val interface{}
+}
+
+func (t Token) String() string {
+	switch t.id {
+	case TokNone:
+		return "None"
+	case TokInt:
+		return fmt.Sprintf("%d", t.val.(int))
+	case TokFloat:
+		return fmt.Sprintf("%f", t.val.(float64))
+	case TokAdd:
+		return "+"
+	case TokSub:
+		return "-"
+	case TokMul:
+		return "*"
+	case TokDiv:
+		return "/"
+	case TokLParen:
+		return "("
+	case TokRParen:
+		return ")"
+	case TokLBrace:
+		return "{"
+	case TokRBrace:
+		return "}"
+	case TokComma:
+		return ","
+	case TokSColon:
+		return ";"
+	case TokFunc:
+		return "func"
+	case TokIdent:
+		return t.val.(string)
+	case TokAssign:
+		return "="
+	case TokEqual:
+		return "=="
+	default:
+		panic(fmt.Errorf("Unknown token: %d", t.id))
+	}
+}
 
 type Lexer struct {
 	rs   io.RuneScanner
 	line int
 	pos  int
 	tok  Token
-	val  interface{}
 }
 
 func NewLexer(rs io.RuneScanner) *Lexer {
-	return &Lexer{rs, 1, 1, TokNone, nil}
+	return &Lexer{rs, 1, 1, Token{}}
 }
 
-func (l *Lexer) ReadToken() (tok Token, val interface{}, err error) {
-	if l.tok > TokNone {
-		tok, l.tok, val, l.val = l.tok, TokNone, l.val, nil
+func (l *Lexer) ReadToken() (tok Token, err error) {
+	if l.tok.id > TokNone {
+		tok, l.tok = l.tok, Token{}
 		return
 	}
 	if err = l.skipSpace(); err != nil {
@@ -72,55 +119,70 @@ func (l *Lexer) ReadToken() (tok Token, val interface{}, err error) {
 	}
 	switch r {
 	case '+':
-		tok = TokAdd
+		tok = Token{id: TokAdd}
 	case '-':
-		tok = TokSub
+		tok = Token{id: TokSub}
 	case '*':
-		tok = TokMul
+		tok = Token{id: TokMul}
 	case '/':
-		tok = TokDiv
+		tok = Token{id: TokDiv}
 	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
 		if err = l.rs.UnreadRune(); err != nil {
 			return
 		}
-		tok = TokNum
-		if val, err = l.readNum(); err != nil {
+		tok = Token{id: TokInt}
+		if tok.val, err = l.readNum(); err != nil {
 			return
 		}
 	case '(':
-		tok = TokLParen
+		tok = Token{id: TokLParen}
 	case ')':
-		tok = TokRParen
+		tok = Token{id: TokRParen}
 	case '{':
-		tok = TokLBrace
+		tok = Token{id: TokLBrace}
 	case '}':
-		tok = TokRBrace
+		tok = Token{id: TokRBrace}
 	case ',':
-		tok = TokComma
+		tok = Token{id: TokComma}
 	case ';':
-		tok = TokSColon
+		tok = Token{id: TokSColon}
 	case '\n':
-		tok = TokSColon // implicit semicolon
+		tok = Token{id: TokSColon} // implicit semicolon
+	case '=':
+		if r, err = l.readRune(); err != nil {
+			return
+		}
+		if r == '=' {
+			tok = Token{id: TokEqual}
+		} else {
+			tok = Token{id: TokAssign}
+			if err = l.rs.UnreadRune(); err != nil {
+				return
+			}
+		}
 	default:
 		if err = l.rs.UnreadRune(); err != nil {
 			return
 		}
+		var val string
 		if val, err = l.readIdent(); err != nil {
 			return
 		}
 		if val == "func" {
-			tok = TokFunc
+			tok = Token{id: TokFunc, val: val}
+		} else {
+			tok = Token{id: TokIdent, val: val}
 		}
 	}
 
 	return
 }
 
-func (l *Lexer) UnreadToken(tok Token, val interface{}) (err error) {
-	if l.tok > TokNone {
+func (l *Lexer) UnreadToken(tok Token) (err error) {
+	if l.tok.id > TokNone {
 		return l.makeError("Cannot unread token")
 	}
-	l.tok, l.val = tok, val
+	l.tok = tok
 	return
 }
 
@@ -138,18 +200,14 @@ func (l *Lexer) skipSpace() (err error) {
 }
 
 func (l *Lexer) readRune() (r rune, err error) {
-	for {
-		if r, _, err = l.rs.ReadRune(); err != nil {
-			return
-		}
-		switch r {
-		case '\n':
-			l.line++
-			l.pos = 1
-		default:
-			return
-		}
+	if r, _, err = l.rs.ReadRune(); err != nil {
+		return
 	}
+	if r == '\n' {
+		l.line++
+		l.pos = 1
+	}
+	return
 }
 
 func (l *Lexer) readNum() (val int, err error) {
@@ -185,6 +243,7 @@ func (l *Lexer) readIdent() (val string, err error) {
 		err = l.unexpectedChar(r)
 		return
 	}
+	val = string(r)
 	for {
 		r, err = l.readRune()
 		if err != nil {
