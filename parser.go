@@ -97,9 +97,9 @@ func (p *Parser) readExprList() (err error) {
 	}
 	for {
 		if err = p.readToken(); err != nil {
-			if err == io.EOF {
-				err = nil
-			}
+			return
+		}
+		if p.tok.id == TokEOF {
 			return
 		}
 		if p.tok.id != TokSColon {
@@ -107,9 +107,6 @@ func (p *Parser) readExprList() (err error) {
 		}
 		for {
 			if err = p.readToken(); err != nil {
-				if err == io.EOF {
-					err = nil
-				}
 				return
 			}
 			if p.tok.id != TokSColon {
@@ -126,9 +123,6 @@ func (p *Parser) readExprList() (err error) {
 			p.addOp(OpDrop)
 		}
 		if err = p.readExpr(); err != nil {
-			if err == io.EOF {
-				err = nil
-			}
 			return
 		}
 	}
@@ -144,9 +138,6 @@ func (p *Parser) readTerm() (err error) {
 	}
 	for {
 		if err = p.readToken(); err != nil {
-			if err == io.EOF {
-				err = nil
-			}
 			return
 		}
 		var op int
@@ -171,9 +162,6 @@ func (p *Parser) readFactor() (err error) {
 	}
 	for {
 		if err = p.readToken(); err != nil {
-			if err == io.EOF {
-				err = nil
-			}
 			return
 		}
 		var op int

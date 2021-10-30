@@ -82,6 +82,9 @@ func (i *Interpreter) Push(val interface{}) {
 }
 
 func (i *Interpreter) Pop() (val interface{}) {
+	if i.dp < 0 {
+		return nil
+	}
 	val = i.dataStack[i.dp]
 	i.dp--
 	return

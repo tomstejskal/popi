@@ -46,6 +46,7 @@ const (
 	TokIdent
 	TokAssign
 	TokEqual
+	TokEOF
 )
 
 type Token struct {
@@ -89,6 +90,8 @@ func (t Token) String() string {
 		return "="
 	case TokEqual:
 		return "=="
+	case TokEOF:
+		return "EOF"
 	default:
 		panic(fmt.Errorf("Unknown token: %d", t.id))
 	}
@@ -111,10 +114,18 @@ func (l *Lexer) ReadToken() (tok Token, err error) {
 		return
 	}
 	if err = l.skipSpace(); err != nil {
+		if err == io.EOF {
+			tok = Token{id: TokEOF}
+			err = nil
+		}
 		return
 	}
 	r, err := l.readRune()
 	if err != nil {
+		if err == io.EOF {
+			tok = Token{id: TokEOF}
+			err = nil
+		}
 		return
 	}
 	switch r {
