@@ -6,12 +6,13 @@ import (
 )
 
 func main() {
-	p := NewParser(strings.NewReader("x = 7; y = 8; x + y"))
-	if err := p.Parse(); err != nil {
+	p := NewParser(strings.NewReader("x = 7; x + 2; y = 8; x + y"))
+	code, err := p.Parse()
+	if err != nil {
 		fmt.Println(err)
 		return
 	}
-	i := NewInterpreter(p.Ops())
+	i := NewInterpreter(code)
 	if err := i.Exec(); err != nil {
 		fmt.Println(err)
 		return
