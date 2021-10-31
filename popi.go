@@ -6,7 +6,7 @@ import (
 )
 
 func main() {
-	p := NewParser(strings.NewReader("x = 7; x + 2; y = 8; x + y"))
+	p := NewParser(strings.NewReader("f = fn(a, b) { a + b }"))
 	code, err := p.Parse()
 	if err != nil {
 		fmt.Println(err)

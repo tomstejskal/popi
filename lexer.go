@@ -110,8 +110,8 @@ func (l *Lexer) ReadToken() (tok Token, err error) {
 		if val, err = l.readIdent(); err != nil {
 			return
 		}
-		if val == "func" {
-			tok = Token{id: TokFunc, val: val}
+		if val == "fn" {
+			tok = Token{id: TokFn, val: val}
 		} else {
 			tok = Token{id: TokIdent, val: val}
 		}

@@ -16,7 +16,7 @@ const (
 	TokRBrace
 	TokComma
 	TokSColon
-	TokFunc
+	TokFn
 	TokIdent
 	TokAssign
 	TokEqual
@@ -56,8 +56,8 @@ func (t Token) String() string {
 		return ","
 	case TokSColon:
 		return ";"
-	case TokFunc:
-		return "func"
+	case TokFn:
+		return "fn"
 	case TokIdent:
 		return t.val.(string)
 	case TokAssign:

@@ -7,29 +7,6 @@ import (
 	"io"
 )
 
-const (
-	OpPushI = 1 + iota
-	OpPushF
-	OpSwap
-	OpDup
-	OpOver
-	OpRot
-	OpDrop
-	OpGet
-	OpSetI
-	OpSetF
-	OpAddI
-	OpSubI
-	OpMulI
-	OpDivI
-	OpAddF
-	OpSubF
-	OpMulF
-	OpDivF
-	OpRet
-	OpCall
-)
-
 type ParserError struct {
 	line int
 	pos  int
@@ -72,8 +49,10 @@ const (
 	ItemParam
 )
 
+type ItemTyp byte
+
 type Item struct {
-	typ   byte
+	typ   ItemTyp
 	ident string
 	val   int
 	next  *Item
@@ -84,10 +63,10 @@ func NewParser(rs io.RuneScanner) *Parser {
 	return &Parser{NewLexer(rs), code, Token{}, 1, 1, &Scope{}}
 }
 
-func (p *Parser) Parse() (code *bytes.Buffer, err error) {
+func (p *Parser) Parse() (buf []byte, err error) {
 	err = p.readExprList()
 	if err == nil {
-		code = p.code
+		buf = p.code.Bytes()
 	}
 	return
 }
@@ -151,7 +130,7 @@ func (p *Parser) readTerm() (err error) {
 		if err = p.readToken(); err != nil {
 			return
 		}
-		var op byte
+		var op OpCode
 		switch p.tok.id {
 		case TokAdd:
 			op = OpAddI
@@ -175,7 +154,7 @@ func (p *Parser) readFactor() (err error) {
 		if err = p.readToken(); err != nil {
 			return
 		}
-		var op byte
+		var op OpCode
 		switch p.tok.id {
 		case TokMul:
 			op = OpMulI
@@ -199,7 +178,7 @@ func (p *Parser) readVal() (err error) {
 	case TokInt:
 		p.writeOp(OpPushI)
 		p.writeInt(p.tok.val.(int))
-	case TokFunc:
+	case TokFn:
 		return p.readFunc()
 	case TokIdent:
 		ident := p.tok.val.(string)
@@ -240,10 +219,10 @@ func (p *Parser) readVal() (err error) {
 }
 
 func (p *Parser) readFunc() (err error) {
-	p.pushScope(&Scope{})
-	defer p.popScope()
 	p.writeOp(OpPushI)
 	p.writeInt(p.code.Len() - 1) // function address
+	p.pushScope(&Scope{})
+	defer p.popScope()
 	if err = p.readToken(); err != nil {
 		return
 	}
@@ -280,6 +259,7 @@ func (p *Parser) readFuncParams() (err error) {
 			return
 		}
 		if p.tok.id != TokComma {
+			err = p.unreadToken()
 			return
 		}
 		if err = p.readToken(); err != nil {
@@ -334,8 +314,8 @@ func (p *Parser) popScope() (scope *Scope) {
 	return
 }
 
-func (p *Parser) writeOp(op byte) (err error) {
-	if err = p.code.WriteByte(op); err != nil {
+func (p *Parser) writeOp(op OpCode) (err error) {
+	if err = p.code.WriteByte(byte(op)); err != nil {
 		return
 	}
 	switch op {
@@ -374,7 +354,7 @@ func (p *Parser) writeOp(op byte) (err error) {
 	case OpRet:
 	case OpCall:
 	default:
-		panic(fmt.Errorf("Unexpected op code: %d\n", op))
+		panic(fmt.Errorf("Unexpected opcode: %s", op))
 	}
 	return
 }

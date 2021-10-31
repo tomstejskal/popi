@@ -1,15 +1,14 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 )
 
 type StackFrame struct {
-	ident string
-	dp    int
+	addr int
+	dp   int
 }
 
 type Interpreter struct {
@@ -17,21 +16,23 @@ type Interpreter struct {
 	callStack []*StackFrame
 	dp        int
 	cp        int
-	code      *bytes.Buffer
+	code      *ByteCode
 }
 
-func NewInterpreter(code *bytes.Buffer) *Interpreter {
+func NewInterpreter(buf []byte) *Interpreter {
+	code := NewByteCode(buf)
 	dataStack := make([]interface{}, 1<<10)
 	callStack := make([]*StackFrame, 1<<10)
 	dp := -1
 	cp := 0
-	callStack[cp] = &StackFrame{"top", dp}
+	callStack[cp] = &StackFrame{code.Addr(), dp}
 	return &Interpreter{dataStack, callStack, dp, cp, code}
 }
 
 func (i *Interpreter) Exec() (err error) {
-	var op byte
-	for op, err = i.code.ReadByte(); err == nil; op, err = i.code.ReadByte() {
+	var c byte
+	for c, err = i.code.ReadByte(); err == nil; c, err = i.code.ReadByte() {
+		op := OpCode(c)
 		switch op {
 		case OpPushI:
 			if err = i.pushI(); err != nil {
@@ -109,8 +110,12 @@ func (i *Interpreter) Exec() (err error) {
 			if err = i.call(); err != nil {
 				return
 			}
+		case OpRet:
+			if err = i.ret(); err != nil {
+				return
+			}
 		default:
-			panic(fmt.Errorf("Unexpected op: %d", op))
+			panic(fmt.Errorf("Unexpected opcode: %s", op))
 		}
 	}
 	if err == io.EOF {
@@ -308,7 +313,22 @@ func (i *Interpreter) divF() (err error) {
 }
 
 func (i *Interpreter) call() (err error) {
-	return fmt.Errorf("Not implemented")
+	addr := i.Pop().(int)
+	i.cp++
+	if i.cp >= len(i.callStack) {
+		i.growCallStack()
+	}
+	i.callStack[i.cp] = &StackFrame{i.code.Addr(), i.dp}
+	i.code.SetAddr(addr)
+	return
+}
+
+func (i *Interpreter) ret() (err error) {
+	frame := i.callStack[i.cp]
+	i.dp = frame.dp
+	i.code.SetAddr(frame.addr + 1)
+	i.cp--
+	return
 }
 
 func (i *Interpreter) readInt() (n int, err error) {
